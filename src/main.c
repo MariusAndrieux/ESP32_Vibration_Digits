@@ -44,7 +44,6 @@ static const char *Button_TAG = "BUTTON_TASK";
 static const char *Display_TAG = "DISPLAY_TASK";
 
 volatile int press_count = 0;
-portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 
 void set_segments(uint8_t value) {
     for (int i = 0; i < 8; i++) {
@@ -62,9 +61,7 @@ void clear_digits(void) {
 void display_task(void *param) {
     while (1) {
         int num;
-        portENTER_CRITICAL(&mux);
         num = 42;// press_count % 10000;  // Limit to 4 digits
-        portEXIT_CRITICAL(&mux);
 
         int digits[4] = {
             (num / 1000) % 10,
@@ -90,9 +87,7 @@ void button_task(void *param) {
         if (state == 0 && last_state == 1) {
             vTaskDelay(pdMS_TO_TICKS(10)); // debounce delay
             if (gpio_get_level(BUTTON_PIN) == 0) {
-                portENTER_CRITICAL(&mux);
                 press_count++;
-                portEXIT_CRITICAL(&mux);
                 ESP_LOGI(Button_TAG, "Button pressed. Count: %d", press_count);
             }
         }
