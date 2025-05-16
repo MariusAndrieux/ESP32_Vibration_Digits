@@ -2,88 +2,26 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
+#include "driver/adc.h"
 #include "esp_log.h"
-#include "esp_intr_alloc.h"
+#include "display.h"
 
 // GPIO definitions
-#define BUTTON_PIN GPIO_NUM_32
-#define LED_PIN    GPIO_NUM_2
-
-// Display 
-#define SEGMENT_ON  0x0
-#define SEGMENT_OFF 0x1
-#define DIGIT_ON    0x1
-#define DIGIT_OFF   0x0
-
-const gpio_num_t segments_pins[8] = {
-    GPIO_NUM_33,   // A
-    GPIO_NUM_25,   // B
-    GPIO_NUM_26,   // C
-    GPIO_NUM_27,   // D
-    GPIO_NUM_14,   // E
-    GPIO_NUM_12,   // F
-    GPIO_NUM_19,   // G
-    GPIO_NUM_15    // DP
-};
-
-const gpio_num_t digits_pins[4] = {
-    GPIO_NUM_16,   // D1
-    GPIO_NUM_17,   // D2
-    GPIO_NUM_5,    // D3
-    GPIO_NUM_18    // D4
-};
-
-const uint8_t digits_segments[10] = {
-    0b00111111, // 0 = A B C D E F
-    0b00000110, // 1 = B C
-    0b01011011, // 2 = A B D E G
-    0b01001111, // 3 = A B C D G
-    0b01100110, // 4 = B C F G
-    0b01101101, // 5 = A C D F G
-    0b01111101, // 6 = A C D E F G
-    0b00000111, // 7 = A B C
-    0b01111111, // 8 = A B C D E F G
-    0b01101111  // 9 = A B C D F G
-};
+#define BUTTON_PIN      GPIO_NUM_32
+#define LED_PIN         GPIO_NUM_2
+#define POTENTIO_CHAN   ADC1_CHANNEL_6
 
 static const char *Button_TAG = "BUTTON_TASK";
 static const char *Display_TAG = "DISPLAY_TASK";
+static const char *Poten_TAG = "POTENTIO_TASK";
 static const char *main_func = "MAIN";
 
 volatile int press_count = 0;
 
-void set_segments(uint8_t value) {
-    for (int i = 0; i < 8; i++) {
-        int level = (value >> i) & 0x01;
-        gpio_set_level(segments_pins[i], !level);
-    }
-}
-
-void clear_digits(void) {
-    for (int i = 0; i < 4; i++) {
-        gpio_set_level(digits_pins[i], 0);
-    }
-}
-
 void display_task(void *param) {
     while (1) {
-        int num;
-        num = press_count % 10000;  // Limit to 4 digits
 
-        int digits[4] = {
-            (num / 1000) % 10,
-            (num / 100) % 10,
-            (num / 10) % 10,
-            num % 10
-        };
-
-        for (int i = 0; i < 4; i++) {
-            clear_digits();  // Turn off all digits
-            set_segments(digits_segments[digits[i]] & 0x7F); // Clear DP
-            gpio_set_level(digits_pins[i], DIGIT_ON);  // Enable digit
-            vTaskDelay(pdMS_TO_TICKS(2));
-        }
-        ESP_LOGI(Display_TAG, "Display updated.");
+        display_set_value(press_count, 95*adc1_get_raw(POTENTIO_CHAN)/0xFFF  + 5);
     }
 }
 
@@ -116,22 +54,16 @@ void app_main(void) {
     gpio_set_direction(BUTTON_PIN, GPIO_MODE_INPUT);
     gpio_set_pull_mode(BUTTON_PIN, GPIO_PULLUP_ONLY);
 
-    // Configure Segment GPIOs
-    for (int i = 0; i < 8; i++) {
-        gpio_reset_pin(segments_pins[i]);
-        gpio_set_direction(segments_pins[i], GPIO_MODE_OUTPUT);
-        gpio_set_level(segments_pins[i], SEGMENT_OFF);
-    }
+    // Configure GPIO Potentiometer
+    adc1_config_width(ADC_WIDTH_BIT_12);
+    adc1_config_channel_atten(POTENTIO_CHAN, ADC_ATTEN_DB_11);
 
-    // Configure Digit GPIOs
-    for (int i = 0; i < 4; i++) {
-        gpio_reset_pin(digits_pins[i]);
-        gpio_set_direction(digits_pins[i], GPIO_MODE_OUTPUT);
-        gpio_set_level(digits_pins[i], DIGIT_OFF); // disable all digits initially
-    }
+    // Display configuration
+    display_init();
 
     ESP_LOGI(main_func, "Tasks Initialisation");
 
+    // Tasks
     xTaskCreate(display_task, "display_task", 2048, NULL, 2, NULL);
     xTaskCreate(button_task, "button_task", 2048, NULL, 2, NULL);
 }
