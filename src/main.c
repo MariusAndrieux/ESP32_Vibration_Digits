@@ -9,6 +9,12 @@
 #define BUTTON_PIN GPIO_NUM_32
 #define LED_PIN    GPIO_NUM_2
 
+// Display 
+#define SEGMENT_ON  0x0
+#define SEGMENT_OFF 0x1
+#define DIGIT_ON    0x1
+#define DIGIT_OFF   0x0
+
 const gpio_num_t segments_pins[8] = {
     GPIO_NUM_33,   // A
     GPIO_NUM_25,   // B
@@ -42,26 +48,27 @@ const uint8_t digits_segments[10] = {
 
 static const char *Button_TAG = "BUTTON_TASK";
 static const char *Display_TAG = "DISPLAY_TASK";
+static const char *main_func = "MAIN";
 
 volatile int press_count = 0;
 
 void set_segments(uint8_t value) {
     for (int i = 0; i < 8; i++) {
         int level = (value >> i) & 0x01;
-        gpio_set_level(segments_pins[i], level);
+        gpio_set_level(segments_pins[i], !level);
     }
 }
 
 void clear_digits(void) {
     for (int i = 0; i < 4; i++) {
-        gpio_set_level(digits_pins[i], 1);
+        gpio_set_level(digits_pins[i], 0);
     }
 }
 
 void display_task(void *param) {
     while (1) {
         int num;
-        num = 42;// press_count % 10000;  // Limit to 4 digits
+        num = press_count % 10000;  // Limit to 4 digits
 
         int digits[4] = {
             (num / 1000) % 10,
@@ -73,9 +80,10 @@ void display_task(void *param) {
         for (int i = 0; i < 4; i++) {
             clear_digits();  // Turn off all digits
             set_segments(digits_segments[digits[i]] & 0x7F); // Clear DP
-            gpio_set_level(digits_pins[i], 0);  // Enable digit
+            gpio_set_level(digits_pins[i], DIGIT_ON);  // Enable digit
             vTaskDelay(pdMS_TO_TICKS(2));
         }
+        ESP_LOGI(Display_TAG, "Display updated.");
     }
 }
 
@@ -98,6 +106,7 @@ void button_task(void *param) {
 }
 
 void app_main(void) {
+    ESP_LOGI(main_func, "GPIO Initialisation");
     // Configure LED GPIO
     gpio_reset_pin(LED_PIN);
     gpio_set_direction(LED_PIN, GPIO_MODE_OUTPUT);
@@ -111,15 +120,17 @@ void app_main(void) {
     for (int i = 0; i < 8; i++) {
         gpio_reset_pin(segments_pins[i]);
         gpio_set_direction(segments_pins[i], GPIO_MODE_OUTPUT);
-        gpio_set_level(segments_pins[i], 1);
+        gpio_set_level(segments_pins[i], SEGMENT_OFF);
     }
 
     // Configure Digit GPIOs
     for (int i = 0; i < 4; i++) {
         gpio_reset_pin(digits_pins[i]);
         gpio_set_direction(digits_pins[i], GPIO_MODE_OUTPUT);
-        gpio_set_level(digits_pins[i], 1); // disable all digits initially
+        gpio_set_level(digits_pins[i], DIGIT_OFF); // disable all digits initially
     }
+
+    ESP_LOGI(main_func, "Tasks Initialisation");
 
     xTaskCreate(display_task, "display_task", 2048, NULL, 2, NULL);
     xTaskCreate(button_task, "button_task", 2048, NULL, 2, NULL);
